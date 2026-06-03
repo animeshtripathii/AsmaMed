@@ -65,6 +65,20 @@ export function AuthProvider({ children }) {
     [navigate]
   );
 
+  const register = useCallback(
+    async (name, email, password) => {
+      const { token: newToken, user: userData } = await authApi.register({ name, email, password });
+
+      localStorage.setItem('token', newToken);
+
+      setToken(newToken);
+      setUser(userData);
+
+      navigate('/seller/products');
+    },
+    [navigate]
+  );
+
   const logout = useCallback(() => {
     localStorage.removeItem('token');
     setToken(null);
@@ -77,6 +91,7 @@ export function AuthProvider({ children }) {
     token,
     isLoading,
     login,
+    register,
     logout,
   };
 
