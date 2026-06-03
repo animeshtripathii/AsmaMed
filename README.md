@@ -27,16 +27,16 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, Vite, TypeScript |
+| Frontend | React 18, Vite, JavaScript |
 | Routing | React Router v6 |
 | Styling | Tailwind CSS v3 |
 | HTTP Client | Axios |
-| Backend | Express.js (Node.js), TypeScript |
-| Database | Neon PostgreSQL (serverless) |
-| ORM / Driver | `pg` (node-postgres) |
-| Auth | JWT (`jsonwebtoken`) + bcrypt |
-| Frontend Deploy | Vercel |
-| Backend Deploy | Render |
+| Backend | Express.js (Node.js), JavaScript (ES Modules) |
+| Database | MongoDB Atlas |
+| ORM / Driver | Mongoose |
+| Auth | JWT (`jsonwebtoken`) + bcrypt, secure cookie-based session token (`cookie-parser`) |
+| Rate Limiting | `express-rate-limit` |
+| Deployment | Vercel (Unified monorepo deployment) |
 
 ---
 
@@ -44,20 +44,20 @@
 
 ```
 [Browser]
-    │  HTTPS requests
+    │  HTTPS requests (with HTTP-only token cookie)
     ▼
 [React SPA — Vite / Vercel]
-    │  Axios (Bearer JWT)
-    │  /api/* → Vercel rewrite (prod) or Vite proxy (dev)
+    │  Axios (withCredentials: true)
+    │  /api/* → Vercel serverless routing
     ▼
-[Express REST API — Node.js / Render]
-    │  pg Pool
-    │  SQL queries with parameterised inputs
+[Express REST API — Node.js / Vercel Serverless]
+    │  Mongoose Connection
+    │  MongoDB Queries
     ▼
-[Neon PostgreSQL — serverless]
-    │  NUMERIC(20,8) for prices/quantities
-    │  UUID primary keys
-    └─ Tables: users, products, quotations, quotation_items
+[MongoDB Atlas Cloud Database]
+    │  Double-precision/custom scale arithmetic for prices/quantities
+    │  MongoDB ObjectId
+    └─ Collections: users, products, quotations, product_requests
 ```
 
 ---
@@ -65,48 +65,63 @@
 ## Database Schema
 
 ### `users`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | UUID | Primary key, `uuid_generate_v4()` |
-| name | TEXT | Display name |
-| email | TEXT | Unique, used for login |
-| password_hash | TEXT | bcrypt hash (cost 10) |
-| role | TEXT | `'admin'` or `'seller'` |
-| created_at | TIMESTAMPTZ | Auto-set |
+| Field | Type | Notes |
+|-------|------|-------|
+| _id | ObjectId | Auto-generated primary key |
+| name | String | Display name |
+| email | String | Unique, used for login |
+| passwordHash | String | bcrypt hash |
+| role | String | `'admin'` or `'seller'` |
+| timestamps | Date | Auto-set `createdAt` and `updatedAt` |
 
 ### `products`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | UUID | Primary key |
-| name | TEXT | Product name |
-| sku | TEXT | Unique stock-keeping unit |
-| category | TEXT | e.g. "Active Ingredient" |
-| unit_type | TEXT | `'weight'`, `'volume'`, or `'count'` |
-| base_unit | TEXT | `'g'`, `'mL'`, or `'count'` |
-| base_price_per_unit | NUMERIC(20,8) | Price in **paise** per base unit |
-| stock_in_base_units | NUMERIC(20,8) | Stock in base unit (g, mL, count) |
-| is_active | BOOLEAN | Soft-delete flag |
+| Field | Type | Notes |
+|-------|------|-------|
+| _id | ObjectId | Primary key |
+| name | String | Product name (text index) |
+| sku | String | Unique stock-keeping unit |
+| category | String | e.g. "Active Ingredient" (text index) |
+| unitType | String | `'weight'`, `'volume'`, or `'count'` |
+| baseUnit | String | `'g'`, `'mL'`, or `'count'` |
+| basePricePaise | Number | Price in **paise** per base unit |
+| stockInBaseUnits | Number | Stock in base unit (g, mL, count) |
+| isActive | Boolean | Soft-delete flag |
 
 ### `quotations`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | UUID | Primary key |
-| seller_id | UUID | Foreign key → users |
-| status | TEXT | `pending` → `approved` → `fulfilled` (or `rejected`) |
-| total_amount_paise | NUMERIC(20,8) | Grand total in paise |
-| notes | TEXT | Optional seller note |
+| Field | Type | Notes |
+|-------|------|-------|
+| _id | ObjectId | Primary key |
+| sellerId | ObjectId | Reference → `User` |
+| status | String | `pending` → `approved` → `fulfilled` (or `rejected`) |
+| totalAmountPaise | Number | Grand total in paise |
+| notes | String | Optional seller note |
 
 ### `quotation_items`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | UUID | Primary key |
-| quotation_id | UUID | Foreign key → quotations |
-| product_id | UUID | Foreign key → products |
-| ordered_quantity | NUMERIC(20,8) | As the seller entered |
-| ordered_unit | TEXT | Unit the seller selected |
-| quantity_in_base_units | NUMERIC(20,8) | Converted for storage |
-| unit_price_paise | NUMERIC(20,8) | Price snapshot in paise |
-| line_total_paise | NUMERIC(20,8) | `base_qty × unit_price` |
+| Field | Type | Notes |
+|-------|------|-------|
+| _id | ObjectId | Primary key |
+| quotationId | ObjectId | Reference → `Quotation` |
+| productId | ObjectId | Reference → `Product` |
+| orderedQuantity | Number | As the seller entered |
+| orderedUnit | String | Unit the seller selected |
+| quantityInBaseUnits | Number | Converted for storage |
+| unitPricePaise | Number | Price snapshot in paise |
+| lineTotalPaise | Number | `quantityInBaseUnits * unitPricePaise` |
+
+### `product_requests`
+| Field | Type | Notes |
+|-------|------|-------|
+| _id | ObjectId | Primary key |
+| sellerId | ObjectId | Reference → `User` |
+| sellerName | String | Seller's name |
+| sellerEmail | String | Seller's email |
+| name | String | Chemical/Product requested |
+| category | String | Category tag |
+| unitType | String | `'weight'`, `'volume'`, or `'count'` |
+| quantity | Number | Quantity requested |
+| unit | String | Unit of measurement |
+| description | String | Optional description notes |
+| status | String | `'pending'`, `'approved'`, or `'rejected'` |
 
 ---
 
@@ -158,20 +173,20 @@ Line total:     2000 g × 45 paise/g = 90,000 paise = ₹900.00
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/aasamedchem.git
-cd aasamedchem
+git clone https://github.com/animeshtripathii/AsmaMed.git
+cd AsmaMed
 
-# 2. Set up the backend
+# 2. Set up the backend env
 cd server
 cp ../.env.example .env
-# Edit .env — set DATABASE_URL, JWT_SECRET
-npm install
+# Edit .env — set MONGODB_URI, JWT_SECRET, CLIENT_URL, PORT
 
-# 3. Set up the database
-# Open Neon Console → SQL Editor → paste contents of src/config/schema.sql → Run
+# 3. Install backend dependencies and seed the database
+npm install
+npm run seed
 
 # 4. Start the backend
-npm run dev  # runs on http://localhost:5000
+npm run dev  # runs on http://localhost:5000 (starts express & Mongoose)
 
 # 5. Set up the frontend (new terminal)
 cd ../client
@@ -187,19 +202,18 @@ npm run dev  # runs on http://localhost:5173
 
 ## Deployment
 
-### Frontend → Vercel
-1. Push to GitHub
-2. Import repo in Vercel dashboard
-3. Set root directory to `client/`
-4. Add environment variable: `VITE_API_URL=https://your-backend.onrender.com`
-5. Deploy
+The project is structured as a unified monorepo for seamless single-click deployment on **Vercel** via the root `vercel.json` routing configuration:
 
-### Backend → Render
-1. Create a new **Web Service** in Render
-2. Set root directory to `server/`
-3. Build command: `npm install && npm run build`
-4. Start command: `npm start`
-5. Add environment variables: `DATABASE_URL`, `JWT_SECRET`, `CLIENT_URL`
+1. Push the repository to GitHub.
+2. Import the repository on Vercel.
+3. Configure the following environment variables in Vercel settings:
+   - `MONGODB_URI`: Your MongoDB Atlas cluster connection string.
+   - `JWT_SECRET`: A secure random secret key for session signing.
+   - `CLIENT_URL`: The production URL of your Vercel deployment (or leave empty to match the host dynamically).
+4. Vercel automatically:
+   - Builds the frontend static app via `@vercel/static-build` using Vite.
+   - Serves the Express server as an API Serverless Function via `@vercel/node`.
+   - Handles rewriting requests from `/api/*` to the server function.
 
 ---
 
