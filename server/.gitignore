@@ -1,0 +1,6 @@
+# Server .gitignore
+node_modules/
+dist/
+.env
+npm-debug.log*
+.DS_Store
