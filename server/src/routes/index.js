@@ -8,6 +8,7 @@ import { Router } from 'express';
 import authRoutes       from './auth.js';
 import productRoutes    from './products.js';
 import quotationRoutes  from './quotations.js';
+import productRequestRoutes from './productRequests.js';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.get('/health', (_req, res) => {
 
 // ── Mount Route Modules ───────────────────────────────────────────────────────
 router.use('/auth', authRoutes);
+router.use('/products/requests', productRequestRoutes);
 router.use('/', productRoutes);
 router.use('/', quotationRoutes);
 

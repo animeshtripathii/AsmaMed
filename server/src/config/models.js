@@ -179,3 +179,63 @@ const quotationItemSchema = new Schema(
 );
 
 export const QuotationItem = mongoose.model('QuotationItem', quotationItemSchema);
+
+// ── PRODUCT REQUEST ───────────────────────────────────────────────────────────
+
+const productRequestSchema = new Schema(
+  {
+    sellerId: {
+      type:     Schema.Types.ObjectId,
+      ref:      'User',
+      required: true,
+      index:    true,
+    },
+    sellerName: {
+      type:     String,
+      required: true,
+    },
+    sellerEmail: {
+      type:     String,
+      required: true,
+    },
+    name: {
+      type:     String,
+      required: [true, 'Chemical/Product name is required'],
+      trim:     true,
+    },
+    category: {
+      type:     String,
+      required: true,
+    },
+    unitType: {
+      type:     String,
+      enum:     { values: ['weight', 'volume', 'count'], message: 'Invalid unit type' },
+      required: true,
+    },
+    quantity: {
+      type:     Number,
+      required: true,
+      min:      [0.000001, 'Quantity must be positive'],
+    },
+    unit: {
+      type:     String,
+      required: true,
+    },
+    description: {
+      type:     String,
+      default:  '',
+    },
+    status: {
+      type:     String,
+      enum:     { values: ['pending', 'approved', 'rejected'], message: 'Invalid status' },
+      default:  'pending',
+      index:    true,
+    },
+  },
+  {
+    timestamps: true,
+    collection: 'productrequests',
+  }
+);
+
+export const ProductRequest = mongoose.model('ProductRequest', productRequestSchema);

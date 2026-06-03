@@ -3,15 +3,16 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * ADMIN DASHBOARD — /admin
  * Matches Screen 2 exactly with purple/lavender styling and high-fidelity skeletons.
+ * Includes Seller Chemical Requests tracking and moderation actions.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, CheckCircle, Clock, IndianRupee, XCircle, Loader2 } from 'lucide-react';
-import { getProducts } from '@/api/products';
+import { Package, CheckCircle, Clock, IndianRupee, XCircle, Loader2, Check, X } from 'lucide-react';
+import { getProducts, getProductRequests, updateProductRequestStatus } from '@/api/products';
 import { getAllQuotations } from '@/api/quotations';
-import { formatINR, formatDate, truncateId } from '@/utils/formatters';
+import { formatINR, formatDate, truncateId, formatQuantity } from '@/utils/formatters';
 import StatusBadge from '@/components/ui/StatusBadge';
 
 const DashboardPage = () => {
@@ -19,19 +20,25 @@ const DashboardPage = () => {
 
   const [products, setProducts] = useState([]);
   const [quotations, setQuotations] = useState([]);
+  const [productRequests, setProductRequests] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Loading state for request actions
+  const [actionLoadingId, setActionLoadingId] = useState(null);
 
   const loadData = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [prods, quots] = await Promise.all([
+      const [prods, quots, reqs] = await Promise.all([
         getProducts(),
         getAllQuotations(),
+        getProductRequests(),
       ]);
       setProducts(prods || []);
       setQuotations(quots || []);
+      setProductRequests(reqs || []);
     } catch (err) {
       console.error('[Dashboard] Error loading data:', err);
       setError('Failed to load dashboard data.');
@@ -44,13 +51,28 @@ const DashboardPage = () => {
     loadData();
   }, []);
 
+  const handleUpdateStatus = async (requestId, newStatus) => {
+    setActionLoadingId(requestId);
+    try {
+      await updateProductRequestStatus(requestId, newStatus);
+      // Update local state directly
+      setProductRequests((prev) =>
+        prev.map((r) => (r._id === requestId || r.id === requestId ? { ...r, status: newStatus } : r))
+      );
+    } catch (err) {
+      console.error('[Dashboard] Error updating request status:', err);
+      alert(err.response?.data?.message ?? 'Failed to update request status.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   const totalProducts = products.length;
   const activeProducts = products.filter((p) => p.isActive).length;
   const pendingQuots = quotations.filter((q) => q.status === 'pending').length;
   
   // Calculate total quotation value
   const totalQuotValue = quotations.reduce((sum, q) => {
-    // If backend returns totalAmountINR, use it. Otherwise divide paise by 100
     const amt = q.totalAmountINR ?? (q.totalAmountPaise ? q.totalAmountPaise / 100 : 0);
     return sum + amt;
   }, 0);
@@ -199,7 +221,7 @@ const DashboardPage = () => {
 
       {/* Recent Quotations Section */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="flex justify-between items-center border-b border-gray-100 px-6 py-4">
+        <div className="flex justify-between items-center border-b border-gray-100 px-6 py-4 bg-gray-50">
           <h2 className="text-lg font-semibold text-gray-900 font-sans">Recent Quotations</h2>
           <span className="text-xs text-gray-400 font-sans">Click a row to view details</span>
         </div>
@@ -244,6 +266,111 @@ const DashboardPage = () => {
                       </td>
                       <td className="px-6 py-4 text-right text-gray-900 font-semibold text-sm font-sans">
                         {formatINR(amt)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Seller Chemical Requests Section */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm mt-6">
+        <div className="flex justify-between items-center border-b border-gray-100 px-6 py-4 bg-gray-50">
+          <h2 className="text-lg font-semibold text-gray-900 font-sans">Seller Chemical Requests</h2>
+          <span className="text-xs text-gray-400 font-sans">Review custom product requests from sellers</span>
+        </div>
+
+        {productRequests.length === 0 ? (
+          <div className="px-6 py-12 text-center text-gray-400 font-sans">
+            No chemical requests found.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <th className="px-6 py-3 font-sans">Date</th>
+                  <th className="px-6 py-3 font-sans">Seller</th>
+                  <th className="px-6 py-3 font-sans">Chemical Name</th>
+                  <th className="px-6 py-3 font-sans">Category</th>
+                  <th className="px-6 py-3 font-sans">Requested Qty</th>
+                  <th className="px-6 py-3 font-sans">Status</th>
+                  <th className="px-6 py-3 font-sans">Notes</th>
+                  <th className="px-6 py-3 text-center font-sans">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productRequests.map((req) => {
+                  const isPending = req.status === 'pending';
+                  const reqId = req._id ?? req.id;
+                  return (
+                    <tr key={reqId} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 text-gray-400 text-xs font-mono">
+                        {new Date(req.createdAt).toLocaleDateString('en-IN', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </td>
+                      <td className="px-6 py-4">
+                        <p className="text-gray-700 font-medium text-sm font-sans">{req.sellerName}</p>
+                        <p className="text-xs text-gray-400 font-mono">{req.sellerEmail}</p>
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-gray-800 text-sm font-sans">
+                        {req.name}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                          req.category === 'Solvent'
+                            ? 'bg-blue-50 text-blue-700 border-blue-100'
+                            : req.category === 'Reagent'
+                            ? 'bg-orange-50 text-orange-700 border-orange-100'
+                            : req.category === 'Active Ingredient'
+                            ? 'bg-purple-50 text-purple-700 border-purple-100'
+                            : 'bg-gray-100 text-gray-600 border-gray-200'
+                        }`}>
+                          {req.category || 'Other'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-mono font-semibold text-gray-700 text-sm">
+                        {formatQuantity(req.quantity, req.unit)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={req.status} />
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-500 max-w-xs truncate font-sans">
+                        {req.description || <span className="text-gray-300 italic">No notes</span>}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {isPending ? (
+                          <div className="flex gap-2 justify-center">
+                            {actionLoadingId === reqId ? (
+                              <Loader2 size={16} className="animate-spin text-purple-700 mx-auto" />
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleUpdateStatus(reqId, 'approved')}
+                                  className="bg-green-500 hover:bg-green-600 text-white rounded p-1 shadow-sm transition-colors"
+                                  title="Approve Request"
+                                >
+                                  <Check size={14} />
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateStatus(reqId, 'rejected')}
+                                  className="bg-red-500 hover:bg-red-600 text-white rounded p-1 shadow-sm transition-colors"
+                                  title="Reject Request"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 font-sans italic">No actions</span>
+                        )}
                       </td>
                     </tr>
                   );

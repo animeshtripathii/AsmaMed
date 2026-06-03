@@ -9,12 +9,11 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Search, ShoppingCart, CheckCircle, AlertCircle, X, ClipboardList, Loader2 } from 'lucide-react';
-import { getProducts } from '@/api/products';
+import { Search, ShoppingCart, CheckCircle, AlertCircle, X, ClipboardList, Loader2, Plus } from 'lucide-react';
+import { getProducts, createProductRequest, getProductRequests } from '@/api/products';
 import { useCart } from '@/context/CartContext';
 import UnitSelector from '@/components/ui/UnitSelector';
-import PriceDisplay from '@/components/ui/PriceDisplay';
-import QuantityDisplay from '@/components/ui/QuantityDisplay';
+import StatusBadge from '@/components/ui/StatusBadge';
 import { getDefaultUnit } from '@/utils/unitConverter';
 import { formatINR, formatQuantity } from '@/utils/formatters';
 import { computeCartItemPrice } from '@/utils/unitConverter';
@@ -41,6 +40,11 @@ const SellerProductsPage = () => {
   // Filters
   const [search, setSearch] = useState('');
   const [unitTypeFilter, setUnitTypeFilter] = useState('all');
+
+  // Tabs
+  const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' or 'requests'
+  const [productRequests, setProductRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
 
   // Custom Request Modal States
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -79,10 +83,28 @@ const SellerProductsPage = () => {
     }
   }, [search, unitTypeFilter]);
 
+  const loadRequests = async () => {
+    setRequestsLoading(true);
+    try {
+      const data = await getProductRequests();
+      setProductRequests(data || []);
+    } catch (err) {
+      console.error('[Catalog] Load requests error:', err);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => loadProducts(), 300);
     return () => clearTimeout(timer);
   }, [loadProducts]);
+
+  useEffect(() => {
+    if (activeTab === 'requests') {
+      loadRequests();
+    }
+  }, [activeTab]);
 
   const updateInput = (productId, changes) => {
     setProductInputs((prev) => ({
@@ -102,22 +124,39 @@ const SellerProductsPage = () => {
   };
 
   // Custom Request Form handlers
-  const handleRequestSubmit = (e) => {
+  const handleRequestSubmit = async (e) => {
     e.preventDefault();
     if (!requestForm.name.trim() || !requestForm.quantity || Number(requestForm.quantity) <= 0) {
       return;
     }
     setRequestSaving(true);
-    // Simulating submitting request to Admin
-    setTimeout(() => {
-      setRequestSaving(false);
+    try {
+      await createProductRequest({
+        name: requestForm.name.trim(),
+        category: requestForm.category,
+        unitType: requestForm.unitType,
+        quantity: Number(requestForm.quantity),
+        unit: requestForm.unit,
+        description: requestForm.description.trim(),
+      });
       setRequestSuccess(true);
+      
+      // Reload requests list if user is currently looking at requests tab
+      if (activeTab === 'requests') {
+        loadRequests();
+      }
+
       setTimeout(() => {
         setShowRequestModal(false);
         setRequestSuccess(false);
         setRequestForm(emptyRequestForm());
-      }, 3000);
-    }, 1200);
+      }, 2500);
+    } catch (err) {
+      console.error('[Catalog] Custom request error:', err);
+      alert(err.response?.data?.message ?? 'Failed to submit product request.');
+    } finally {
+      setRequestSaving(false);
+    }
   };
 
   const getCategoryColor = (category) => {
@@ -135,219 +174,320 @@ const SellerProductsPage = () => {
     }
   };
 
-  if (isLoading && products.length === 0) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-gray-200 rounded animate-pulse" />
-        <div className="flex gap-4 items-center">
-          <div className="h-10 w-72 bg-gray-200 rounded animate-pulse" />
-          <div className="h-10 w-64 bg-gray-200 rounded animate-pulse" />
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-48 bg-white border border-gray-200 rounded-xl p-5 animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 font-sans">Product Catalog</h1>
-        <p className="text-sm text-gray-500 mt-1 font-sans">
-          Browse items, estimate total pricing, and submit a purchase quotation.
-        </p>
-      </div>
-
-      {/* Search & Filter Bar */}
-      <div className="flex flex-col gap-3 sm:flex-row">
-        {/* Search Input */}
-        <div className="relative flex-1">
-          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search size={16} className="text-gray-400" />
-          </span>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or category..."
-            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-500 transition-colors shadow-sm"
-          />
-        </div>
-
-        {/* Filter Chips */}
-        <div className="flex gap-2">
-          {['all', 'weight', 'volume', 'count'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setUnitTypeFilter(t)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-all border ${
-                unitTypeFilter === t
-                  ? 'bg-purple-700 text-white border-purple-700 shadow-sm'
-                  : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 font-sans">Product Catalog</h1>
+          <p className="text-sm text-gray-500 mt-1 font-sans">
+            Browse items, estimate total pricing, and submit a purchase quotation.
+          </p>
         </div>
       </div>
 
-      <p className="text-xs text-gray-400 italic font-sans">
-        * Prices are estimates — final confirmed prices are calculated on quotation approval.
-      </p>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-red-600 text-sm">
-          <AlertCircle size={16} />
-          <span>{error}</span>
+      {/* Tabs Row */}
+      <div className="flex border-b border-gray-200 w-full justify-between items-center">
+        <div className="flex gap-6">
+          <button
+            onClick={() => setActiveTab('catalog')}
+            className={`py-3 text-sm font-semibold border-b-2 transition-all ${
+              activeTab === 'catalog'
+                ? 'border-purple-700 text-purple-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            All Chemical Products
+          </button>
+          <button
+            onClick={() => setActiveTab('requests')}
+            className={`py-3 text-sm font-semibold border-b-2 transition-all ${
+              activeTab === 'requests'
+                ? 'border-purple-700 text-purple-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            My Custom Requests
+          </button>
         </div>
-      )}
-
-      {/* Products Grid */}
-      {products.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-xl p-12 text-center flex flex-col items-center justify-center shadow-sm space-y-4">
-          <ClipboardList size={48} className="text-gray-300" />
-          <div>
-            <h3 className="text-base font-semibold text-gray-700 font-sans">No products found</h3>
-            <p className="text-xs text-gray-400 mt-1 max-w-sm font-sans">
-              No matching chemical products are currently in stock or available in the catalog.
-            </p>
-          </div>
-          <div className="pt-2">
-            <button
-              onClick={() => setShowRequestModal(true)}
-              className="bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold py-2 px-4 rounded-lg transition-colors shadow-sm"
-            >
-              Request Custom Product
-            </button>
-          </div>
+        <div>
+          <button
+            onClick={() => setShowRequestModal(true)}
+            className="bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold py-2 px-4 rounded-lg transition-colors shadow-sm flex items-center gap-1.5"
+          >
+            <Plus size={14} />
+            <span>Request Custom Product</span>
+          </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {products.map((product) => {
-            const input = productInputs[product.id];
-            const isOutOfStock = (product.displayStock?.value ?? 0) <= 0;
-            const previewPrice = input
-              ? computeCartItemPrice(product, input.quantity, input.selectedUnit)
-              : 0;
+      </div>
 
-            return (
-              <div
-                key={product.id}
-                className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col hover:border-purple-300 transition-all duration-200"
-              >
-                {/* Top Section */}
-                <div className="p-4 flex-1">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-sm font-bold text-gray-800 font-sans">{product.name}</h3>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${getCategoryColor(product.category)}`}>
-                      {product.category || 'Other'}
-                    </span>
-                  </div>
-                  <p className="text-[10px] font-mono text-gray-400">SKU: {product.sku || 'N/A'}</p>
-                  
-                  {product.description && (
-                    <p className="text-xs text-gray-500 font-sans mt-2 line-clamp-2 leading-relaxed">
-                      {product.description}
-                    </p>
-                  )}
+      {activeTab === 'catalog' && (
+        <>
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search size={16} className="text-gray-400" />
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or category..."
+                className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-500 transition-colors shadow-sm"
+              />
+            </div>
 
-                  {/* Price & Stock Display Block */}
-                  <div className="mt-4 flex justify-between items-center rounded-lg bg-gray-50 p-2.5">
-                    <div>
-                      <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Price</p>
-                      <div className="flex items-baseline gap-0.5 mt-0.5">
-                        <span className="text-sm font-bold text-gray-900">
-                          {formatINR(product.displayPrice?.value ?? 0)}
+            {/* Filter Chips */}
+            <div className="flex gap-2">
+              {['all', 'weight', 'volume', 'count'].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setUnitTypeFilter(t)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-all border ${
+                    unitTypeFilter === t
+                      ? 'bg-purple-700 text-white border-purple-700 shadow-sm'
+                      : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 italic font-sans">
+            * Prices are estimates — final confirmed prices are calculated on quotation approval.
+          </p>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-red-600 text-sm">
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {isLoading && products.length === 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="h-48 bg-white border border-gray-200 rounded-xl p-5 animate-pulse" />
+              ))}
+            </div>
+          ) : products.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl p-12 text-center flex flex-col items-center justify-center shadow-sm space-y-4">
+              <ClipboardList size={48} className="text-gray-300" />
+              <div>
+                <h3 className="text-base font-semibold text-gray-700 font-sans">No products found</h3>
+                <p className="text-xs text-gray-400 mt-1 max-w-sm font-sans">
+                  No matching chemical products are currently in stock or available in the catalog.
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  onClick={() => setShowRequestModal(true)}
+                  className="bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold py-2 px-4 rounded-lg transition-colors shadow-sm"
+                >
+                  Request Custom Product
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {products.map((product) => {
+                const input = productInputs[product.id];
+                const isOutOfStock = (product.displayStock?.value ?? 0) <= 0;
+                const previewPrice = input
+                  ? computeCartItemPrice(product, input.quantity, input.selectedUnit)
+                  : 0;
+
+                return (
+                  <div
+                    key={product.id}
+                    className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col hover:border-purple-300 transition-all duration-200 animate-fade-in"
+                  >
+                    {/* Top Section */}
+                    <div className="p-4 flex-1">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-sm font-bold text-gray-800 font-sans">{product.name}</h3>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${getCategoryColor(product.category)}`}>
+                          {product.category || 'Other'}
                         </span>
-                        <span className="text-[10px] text-gray-400">/{product.displayPrice?.unit}</span>
+                      </div>
+                      <p className="text-[10px] font-mono text-gray-400">SKU: {product.sku || 'N/A'}</p>
+                      
+                      {product.description && (
+                        <p className="text-xs text-gray-500 font-sans mt-2 line-clamp-2 leading-relaxed">
+                          {product.description}
+                        </p>
+                      )}
+
+                      {/* Price & Stock Display Block */}
+                      <div className="mt-4 flex justify-between items-center rounded-lg bg-gray-50 p-2.5">
+                        <div>
+                          <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Price</p>
+                          <div className="flex items-baseline gap-0.5 mt-0.5">
+                            <span className="text-sm font-bold text-gray-900">
+                              {formatINR(product.displayPrice?.value ?? 0)}
+                            </span>
+                            <span className="text-[10px] text-gray-400">/{product.displayPrice?.unit}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Stock Status</p>
+                          {isOutOfStock ? (
+                            <span className="inline-block mt-1 text-[10px] bg-red-50 text-red-700 font-bold px-1.5 py-0.5 rounded border border-red-150">
+                              Out of Stock
+                            </span>
+                          ) : (
+                            <div className="text-xs font-semibold text-green-700 mt-1">
+                              Available: {formatQuantity(product.displayStock?.value, product.displayStock?.unit)}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Stock Status</p>
-                      {isOutOfStock ? (
-                        <span className="inline-block mt-1 text-[10px] bg-red-50 text-red-700 font-bold px-1.5 py-0.5 rounded border border-red-150">
-                          Out of Stock
-                        </span>
-                      ) : (
-                        <div className="text-xs font-semibold text-green-700 mt-1">
-                          Available: {formatQuantity(product.displayStock?.value, product.displayStock?.unit)}
-                        </div>
+
+                    {/* Bottom Section (Card controls) */}
+                    <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3">
+                      {input && (
+                        <>
+                          {/* Quantity & Unit Row */}
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              step="any"
+                              min={isOutOfStock ? "0" : "0.000001"}
+                              disabled={isOutOfStock}
+                              value={input.quantity}
+                              onChange={(e) => updateInput(product.id, { quantity: Number(e.target.value) })}
+                              placeholder={isOutOfStock ? "0" : "1"}
+                              className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                            />
+                            <UnitSelector
+                              unitType={product.unitType}
+                              value={input.selectedUnit}
+                              disabled={isOutOfStock}
+                              onChange={(unit) => updateInput(product.id, { selectedUnit: unit })}
+                              className="flex-1 focus:ring-purple-500 focus:border-purple-500"
+                            />
+                          </div>
+
+                          {/* Price Preview */}
+                          <div className="h-5 flex items-center justify-end text-xs text-gray-400">
+                            {input.quantity > 0 && !isOutOfStock && (
+                              <p className="font-sans">
+                                ≈ <span className="font-bold text-purple-700">{formatINR(previewPrice)}</span> (est.)
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Add to Cart Button */}
+                          <button
+                            onClick={() => handleAddToCart(product)}
+                            disabled={isOutOfStock || input.quantity <= 0}
+                            className={`w-full py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                              isOutOfStock
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : input.justAdded
+                                ? 'bg-green-500 text-white'
+                                : 'bg-purple-700 hover:bg-purple-800 text-white'
+                            }`}
+                          >
+                            {isOutOfStock ? (
+                              <span>Out of Stock</span>
+                            ) : input.justAdded ? (
+                              <>
+                                <CheckCircle size={14} />
+                                <span>Added to Cart</span>
+                              </>
+                            ) : (
+                              <>
+                                <ShoppingCart size={14} />
+                                <span>Add to Cart</span>
+                              </>
+                            )}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
 
-                {/* Bottom Section (Card controls) */}
-                <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3">
-                  {input && (
-                    <>
-                      {/* Quantity & Unit Row */}
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          step="any"
-                          min={isOutOfStock ? "0" : "0.000001"}
-                          disabled={isOutOfStock}
-                          value={input.quantity}
-                          onChange={(e) => updateInput(product.id, { quantity: Number(e.target.value) })}
-                          placeholder={isOutOfStock ? "0" : "1"}
-                          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white disabled:bg-gray-100 disabled:text-gray-400"
-                        />
-                        <UnitSelector
-                          unitType={product.unitType}
-                          value={input.selectedUnit}
-                          disabled={isOutOfStock}
-                          onChange={(unit) => updateInput(product.id, { selectedUnit: unit })}
-                          className="flex-1 focus:ring-purple-500 focus:border-purple-500"
-                        />
-                      </div>
+      {/* Product Requests Tab Content */}
+      {activeTab === 'requests' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm animate-fade-in">
+          <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 font-sans">Submitted Chemical Requests</h2>
+              <p className="text-xs text-gray-500 mt-1 font-sans">Track the status of your requested products</p>
+            </div>
+          </div>
 
-                      {/* Price Preview */}
-                      <div className="h-5 flex items-center justify-end text-xs text-gray-400">
-                        {input.quantity > 0 && !isOutOfStock && (
-                          <p className="font-sans">
-                            ≈ <span className="font-bold text-purple-700">{formatINR(previewPrice)}</span> (est.)
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Add to Cart Button */}
-                      <button
-                        onClick={() => handleAddToCart(product)}
-                        disabled={isOutOfStock || input.quantity <= 0}
-                        className={`w-full py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-all shadow-sm ${
-                          isOutOfStock
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : input.justAdded
-                            ? 'bg-green-500 text-white'
-                            : 'bg-purple-700 hover:bg-purple-800 text-white'
-                        }`}
-                      >
-                        {isOutOfStock ? (
-                          <span>Out of Stock</span>
-                        ) : input.justAdded ? (
-                          <>
-                            <CheckCircle size={14} />
-                            <span>Added to Cart</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShoppingCart size={14} />
-                            <span>Add to Cart</span>
-                          </>
-                        )}
-                      </button>
-                    </>
-                  )}
-                </div>
+          {requestsLoading ? (
+            <div className="py-12 flex justify-center items-center text-gray-400 gap-2">
+              <Loader2 size={20} className="animate-spin text-purple-700" />
+              <span className="text-sm font-medium">Loading requests...</span>
+            </div>
+          ) : productRequests.length === 0 ? (
+            <div className="py-12 text-center text-gray-400 font-sans flex flex-col items-center justify-center space-y-3">
+              <ClipboardList size={40} className="text-gray-300" />
+              <div>
+                <p className="text-sm font-semibold text-gray-700 font-sans">No custom requests yet</p>
+                <p className="text-xs text-gray-400 mt-1 font-sans">Click the button above to request a new chemical.</p>
               </div>
-            );
-          })}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3 font-sans">Date</th>
+                    <th className="px-6 py-3 font-sans">Chemical Name</th>
+                    <th className="px-6 py-3 font-sans">Category</th>
+                    <th className="px-6 py-3 font-sans">Requested Qty</th>
+                    <th className="px-6 py-3 font-sans">Status</th>
+                    <th className="px-6 py-3 font-sans">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productRequests.map((req) => (
+                    <tr key={req._id ?? req.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 text-gray-400 text-xs font-mono">
+                        {new Date(req.createdAt).toLocaleDateString('en-IN', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-gray-800 text-sm font-sans">
+                        {req.name}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${getCategoryColor(req.category)}`}>
+                          {req.category}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-mono font-semibold text-gray-700 text-sm">
+                        {formatQuantity(req.quantity, req.unit)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={req.status} />
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-500 max-w-xs truncate font-sans">
+                        {req.description || <span className="text-gray-300 italic">No notes</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -368,11 +508,11 @@ const SellerProductsPage = () => {
 
             {/* Success Alert */}
             {requestSuccess ? (
-              <div className="p-6 text-center space-y-3">
-                <CheckCircle size={48} className="text-green-500 mx-auto" />
+              <div className="p-6 text-center space-y-3 animate-fade-in">
+                <CheckCircle size={48} className="text-green-500 mx-auto animate-bounce" />
                 <h4 className="text-lg font-bold text-gray-800 font-sans">Request Submitted</h4>
                 <p className="text-sm text-gray-500 font-sans px-4">
-                  The admin has been notified of your custom chemical request. You will be alerted once the product is added.
+                  Your custom chemical request has been submitted to the database. Admins will review it on their dashboard shortly.
                 </p>
               </div>
             ) : (

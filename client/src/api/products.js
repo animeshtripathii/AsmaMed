@@ -49,3 +49,30 @@ export async function updateProduct(id, data) {
 export async function deleteProduct(id) {
   await api.delete(`/admin/products/${id}`);
 }
+
+/**
+ * POST /api/products/requests
+ * Submit a custom chemical request.
+ */
+export async function createProductRequest(data) {
+  const res = await api.post('/products/requests', data);
+  return res.data.data;
+}
+
+/**
+ * GET /api/products/requests
+ * Fetch list of custom chemical requests.
+ */
+export async function getProductRequests() {
+  const res = await api.get('/products/requests');
+  return res.data.data;
+}
+
+/**
+ * PUT /api/products/requests/:id/status
+ * Update status of a product request. Admin only.
+ */
+export async function updateProductRequestStatus(id, status) {
+  const res = await api.put(`/products/requests/${id}/status`, { status });
+  return res.data.data;
+}
