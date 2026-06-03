@@ -20,15 +20,26 @@ const app = express();
 app.set('trust proxy', 1);
 
 const allowedOrigins = [
-  process.env.CLIENT_URL ?? 'http://localhost:5173',
+  process.env.CLIENT_URL,
   'http://localhost:5173',
   'http://localhost:3000',
+  'https://asma-med.vercel.app',
 ];
-// ... (rest of CORS and other middleware) ...
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  // Automatically allow any vercel.app domains (including preview branches) and localhost ports
+  if (origin.endsWith('.vercel.app') || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return true;
+  }
+  return false;
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error(`CORS: origin ${origin} not allowed`));
