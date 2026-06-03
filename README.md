@@ -4,8 +4,8 @@
 
 ## Live Demo
 
-- **Frontend:** https://aasamedchem.vercel.app *(deploy to Vercel to activate)*
-- **Backend API:** https://aasamedchem-api.onrender.com *(deploy to Render to activate)*
+- **Frontend:** [https://aasamedchem.vercel.app](https://asma-med.vercel.app) *(deploy to Vercel to activate)*
+
 
 ---
 
