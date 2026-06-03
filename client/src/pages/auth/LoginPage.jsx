@@ -27,7 +27,7 @@ const LoginPage = () => {
   const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  
+
   const [touched, setTouched] = useState({ name: false, email: false, password: false });
 
   // Redirect if already logged in

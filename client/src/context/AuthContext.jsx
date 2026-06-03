@@ -19,28 +19,18 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user,      setUser]      = useState(null);
-  const [token,     setToken]     = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-
-    if (!storedToken) {
-      setIsLoading(false);
-      return;
-    }
-
-    setToken(storedToken);
-
+    // Check if user is logged in by calling /me. Browser sends cookie automatically.
     authApi
       .getMe()
       .then((userData) => {
         setUser(userData);
       })
       .catch(() => {
-        localStorage.removeItem('token');
-        setToken(null);
+        setUser(null);
       })
       .finally(() => {
         setIsLoading(false);
@@ -49,11 +39,8 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(
     async (email, password) => {
-      const { token: newToken, user: userData } = await authApi.login(email, password);
-
-      localStorage.setItem('token', newToken);
-
-      setToken(newToken);
+      // Cookie is set automatically in backend response
+      const { user: userData } = await authApi.login(email, password);
       setUser(userData);
 
       if (userData.role === 'admin') {
@@ -67,11 +54,8 @@ export function AuthProvider({ children }) {
 
   const register = useCallback(
     async (name, email, password) => {
-      const { token: newToken, user: userData } = await authApi.register({ name, email, password });
-
-      localStorage.setItem('token', newToken);
-
-      setToken(newToken);
+      // Cookie is set automatically in backend response
+      const { user: userData } = await authApi.register({ name, email, password });
       setUser(userData);
 
       navigate('/seller/products');
@@ -79,16 +63,20 @@ export function AuthProvider({ children }) {
     [navigate]
   );
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
-    navigate('/login');
+  const logout = useCallback(async () => {
+    try {
+      // Clear cookie on backend
+      await authApi.logout();
+    } catch (err) {
+      console.error('[AuthContext] Logout failed:', err);
+    } finally {
+      setUser(null);
+      navigate('/login');
+    }
   }, [navigate]);
 
   const value = {
     user,
-    token,
     isLoading,
     login,
     register,

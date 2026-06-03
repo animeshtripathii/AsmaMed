@@ -13,17 +13,20 @@ import jwt from 'jsonwebtoken';
  */
 export function authenticate(req, res, next) {
   try {
-    const authHeader = req.headers.authorization;
+    let token = req.cookies?.token;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Fallback to Bearer token in Authorization header
+    if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
       res.status(401).json({
         success: false,
         message: 'Access denied. No token provided.',
       });
       return;
     }
-
-    const token = authHeader.split(' ')[1];
 
     if (!process.env.JWT_SECRET) {
       throw new Error('JWT_SECRET environment variable is not set');

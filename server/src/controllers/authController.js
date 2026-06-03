@@ -9,6 +9,14 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../config/models.js';
 
+// Cookie options for JWT storage
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
 // ── Helper: sign a JWT ────────────────────────────────────────────────────────
 function signToken(user) {
   if (!process.env.JWT_SECRET) {
@@ -50,10 +58,12 @@ export async function login(req, res) {
 
     const token = signToken(user);
 
+    // Set secure HTTP-only cookie
+    res.cookie('token', token, COOKIE_OPTIONS);
+
     res.status(200).json({
       success: true,
       data: {
-        token,
         user: {
           id:    user._id.toString(),
           name:  user.name,
@@ -94,10 +104,12 @@ export async function register(req, res) {
 
     const token = signToken(newUser);
 
+    // Set secure HTTP-only cookie
+    res.cookie('token', token, COOKIE_OPTIONS);
+
     res.status(201).json({
       success: true,
       data: {
-        token,
         user: {
           id:    newUser._id.toString(),
           name:  newUser.name,
@@ -117,6 +129,24 @@ export async function register(req, res) {
       return;
     }
     console.error('[Auth] Register error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error.' });
+  }
+}
+
+// ── POST /api/auth/logout ──────────────────────────────────────────────────────
+export async function logout(req, res) {
+  try {
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    });
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully.',
+    });
+  } catch (error) {
+    console.error('[Auth] Logout error:', error);
     res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 }

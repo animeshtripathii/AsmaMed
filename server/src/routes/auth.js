@@ -3,7 +3,7 @@
  * Auth routes: login, register, get current user
  */
 import { Router } from 'express';
-import { login, register, getMe } from '../controllers/authController.js';
+import { login, register, logout, getMe } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimiter.js';
 
@@ -14,6 +14,9 @@ router.post('/login', authLimiter, login);
 
 // POST /api/auth/register
 router.post('/register', authLimiter, register);
+
+// POST /api/auth/logout
+router.post('/logout', logout);
 
 // GET /api/auth/me
 router.get('/me', authenticate, getMe);
